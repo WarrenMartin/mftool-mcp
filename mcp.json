@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "mftool-mcp": {
+      "command": "python",
+      "args": ["-m", "mftool_mcp.server"],
+      "description": "Indian Mutual Fund data via mftool"
+    }
+  }
+}
+
