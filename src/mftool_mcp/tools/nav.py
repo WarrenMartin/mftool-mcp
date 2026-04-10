@@ -4,6 +4,7 @@ NAV-related MCP tools wrapping mftool APIs.
 
 from mftool import Mftool
 from mftool_mcp.mcp_instance import mcp
+from mftool_mcp.cache import _cache
 
 _mf = Mftool()
 
@@ -21,9 +22,13 @@ def get_scheme_quote(scheme_code: str) -> dict:
         Dictionary with scheme_code, scheme_name, last_updated, nav.
     """
     try:
-        result = _mf.get_scheme_quote(scheme_code, as_json=False)
+        result = _cache.cached(
+            f"quote:{scheme_code}",
+            lambda: _mf.get_scheme_quote(scheme_code, as_json=False),
+            ttl=900,  # 15 minutes
+        )
         if not result:
-            return {"error": f"No data found for scheme code: {scheme_code}"}
+            return {"error": f"No data found for scheme code: {scheme_code}. Use search_scheme_by_name to find valid codes."}
         return result
     except Exception as e:
         return {"error": str(e)}
@@ -43,9 +48,13 @@ def get_scheme_details(scheme_code: str) -> dict:
         scheme_code, scheme_name, scheme_start_date.
     """
     try:
-        result = _mf.get_scheme_details(scheme_code, as_json=False)
+        result = _cache.cached(
+            f"details:{scheme_code}",
+            lambda: _mf.get_scheme_details(scheme_code, as_json=False),
+            ttl=21600,  # 6 hours — scheme metadata rarely changes
+        )
         if not result:
-            return {"error": f"No details found for scheme code: {scheme_code}"}
+            return {"error": f"No details found for scheme code: {scheme_code}. Use search_scheme_by_name to find valid codes."}
         return result
     except Exception as e:
         return {"error": str(e)}
@@ -64,7 +73,11 @@ def get_scheme_historical_nav(scheme_code: str) -> dict:
         sorted latest first.
     """
     try:
-        result = _mf.get_scheme_historical_nav(scheme_code, as_json=False)
+        result = _cache.cached(
+            f"historical:{scheme_code}",
+            lambda: _mf.get_scheme_historical_nav(scheme_code, as_json=False),
+            ttl=3600,  # 1 hour
+        )
         if not result:
             return {"error": f"No historical data found for scheme code: {scheme_code}"}
         return result

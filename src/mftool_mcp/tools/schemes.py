@@ -4,25 +4,46 @@ Scheme discovery and search MCP tools wrapping mftool APIs.
 
 from mftool import Mftool
 from mftool_mcp.mcp_instance import mcp
+from mftool_mcp.cache import _cache
 
 _mf = Mftool()
 
 
 @mcp.tool()
-def get_scheme_codes() -> dict:
+def get_scheme_codes(limit: int = 100, offset: int = 0) -> dict:
     """
-    Get a dictionary of ALL mutual fund scheme codes and names available on AMFI.
-    Returns a large dataset with scheme_code -> scheme_name mappings.
-    Use this to discover scheme codes for funds you want to query.
+    Get mutual fund scheme codes and names from AMFI with pagination.
+    Use search_scheme_by_name for targeted searches instead of fetching all.
+
+    Args:
+        limit:  Number of results to return (default 100, max 500).
+        offset: Number of results to skip for pagination (default 0).
 
     Returns:
-        Dictionary mapping scheme codes (str) to scheme names (str).
+        Dictionary with 'results' (scheme_code -> name), 'total', 'limit', 'offset'.
     """
     try:
-        result = _mf.get_scheme_codes(as_json=False)
-        if not result:
+        limit = min(max(1, limit), 500)
+        offset = max(0, offset)
+
+        all_schemes = _cache.cached(
+            "all_scheme_codes",
+            lambda: _mf.get_scheme_codes(as_json=False),
+            ttl=7200,  # 2 hours
+        )
+        if not all_schemes:
             return {"error": "Could not fetch scheme codes."}
-        return result
+
+        items = list(all_schemes.items())
+        page = items[offset: offset + limit]
+
+        return {
+            "results": dict(page),
+            "total": len(items),
+            "limit": limit,
+            "offset": offset,
+            "has_more": (offset + limit) < len(items),
+        }
     except Exception as e:
         return {"error": str(e)}
 
@@ -40,9 +61,13 @@ def get_available_schemes(amc_name: str) -> dict:
         Dictionary mapping scheme codes (str) to scheme names (str) for the given AMC.
     """
     try:
-        result = _mf.get_available_schemes(amc_name)
+        result = _cache.cached(
+            f"amc:{amc_name.lower()}",
+            lambda: _mf.get_available_schemes(amc_name),
+            ttl=7200,  # 2 hours
+        )
         if not result:
-            return {"error": f"No schemes found for AMC: '{amc_name}'. Try a shorter keyword."}
+            return {"error": f"No schemes found for AMC: '{amc_name}'. Try a shorter keyword like 'hdfc', 'sbi', 'axis'."}
         return result
     except Exception as e:
         return {"error": str(e)}
@@ -81,9 +106,17 @@ def search_scheme_by_name(query: str, amc_name: str = "") -> dict:
     """
     try:
         if amc_name:
-            all_schemes = _mf.get_available_schemes(amc_name)
+            all_schemes = _cache.cached(
+                f"amc:{amc_name.lower()}",
+                lambda: _mf.get_available_schemes(amc_name),
+                ttl=7200,
+            )
         else:
-            all_schemes = _mf.get_scheme_codes(as_json=False)
+            all_schemes = _cache.cached(
+                "all_scheme_codes",
+                lambda: _mf.get_scheme_codes(as_json=False),
+                ttl=7200,
+            )
 
         if not all_schemes:
             return {"error": "Could not fetch schemes for search."}

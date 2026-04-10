@@ -5,6 +5,7 @@ Returns 1Y/3Y/5Y returns for open-ended schemes.
 
 from mftool import Mftool
 from mftool_mcp.mcp_instance import mcp
+from mftool_mcp.cache import _cache
 
 _mf = Mftool()
 
@@ -20,7 +21,11 @@ def get_equity_scheme_performance() -> dict:
         Dictionary categorized by equity fund type with performance metrics.
     """
     try:
-        result = _mf.get_open_ended_equity_scheme_performance(as_json=False)
+        result = _cache.cached(
+            "perf:equity",
+            lambda: _mf.get_open_ended_equity_scheme_performance(as_json=False),
+            ttl=3600,  # 1 hour
+        )
         if not result:
             return {"error": "Could not fetch equity scheme performance data."}
         return result
@@ -39,7 +44,11 @@ def get_debt_scheme_performance() -> dict:
         Dictionary categorized by debt fund type with performance metrics.
     """
     try:
-        result = _mf.get_open_ended_debt_scheme_performance(as_json=False)
+        result = _cache.cached(
+            "perf:debt",
+            lambda: _mf.get_open_ended_debt_scheme_performance(as_json=False),
+            ttl=3600,
+        )
         if not result:
             return {"error": "Could not fetch debt scheme performance data."}
         return result
@@ -58,7 +67,11 @@ def get_hybrid_scheme_performance() -> dict:
         Dictionary categorized by hybrid fund type with performance metrics.
     """
     try:
-        result = _mf.get_open_ended_hybrid_scheme_performance(as_json=False)
+        result = _cache.cached(
+            "perf:hybrid",
+            lambda: _mf.get_open_ended_hybrid_scheme_performance(as_json=False),
+            ttl=3600,
+        )
         if not result:
             return {"error": "Could not fetch hybrid scheme performance data."}
         return result
@@ -77,15 +90,19 @@ def get_elss_scheme_performance() -> dict:
         Dictionary with ELSS fund performance metrics.
     """
     try:
-        result = _mf.get_open_ended_equity_scheme_performance(as_json=False)
+        result = _cache.cached(
+            "perf:equity",
+            lambda: _mf.get_open_ended_equity_scheme_performance(as_json=False),
+            ttl=3600,
+        )
         if not result:
             return {"error": "Could not fetch ELSS scheme performance data."}
 
-        # Filter only ELSS category
-        elss_data = {}
-        for category, funds in result.items():
-            if "elss" in category.lower() or "tax" in category.lower():
-                elss_data[category] = funds
+        elss_data = {
+            category: funds
+            for category, funds in result.items()
+            if "elss" in category.lower() or "tax" in category.lower()
+        }
 
         if not elss_data:
             return {
