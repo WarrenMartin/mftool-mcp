@@ -26,9 +26,10 @@ def get_portfolio_valuation(investments: list[dict]) -> dict:
         units = float(inv.get('units', 0))
         
         try:
-            quote = m.get_scheme_quote(code)
-            if quote and 'last_nav' in quote:
-                nav = float(quote['last_nav'])
+            quote = m.get_scheme_quote(code, as_json=False)
+            nav_raw = quote.get('nav') or quote.get('last_nav') if quote else None
+            if quote and nav_raw:
+                nav = float(nav_raw)
                 value = nav * units
                 total_value += value
                 details.append({
@@ -37,7 +38,7 @@ def get_portfolio_valuation(investments: list[dict]) -> dict:
                     "nav": nav,
                     "units": units,
                     "current_value": round(value, 2),
-                    "date": quote.get('date')
+                    "date": quote.get('date') or quote.get('last_updated')
                 })
             else:
                 logger.warning(f"Could not fetch NAV for scheme code: {code}")

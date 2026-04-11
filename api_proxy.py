@@ -20,10 +20,10 @@ app.add_middleware(
 
 # Lazy imports to ensure environment is set up
 def get_tools():
-    from mftool_mcp.tools.nav import get_scheme_quote
+    from mftool_mcp.tools.nav import get_scheme_quote, get_scheme_historical_nav
     from mftool_mcp.tools.portfolio import get_portfolio_valuation, discover_investments
     from mftool_mcp.tools.schemes import search_scheme_by_name
-    return get_scheme_quote, get_portfolio_valuation, discover_investments, search_scheme_by_name
+    return get_scheme_quote, get_portfolio_valuation, discover_investments, search_scheme_by_name, get_scheme_historical_nav
 
 @app.get("/health")
 async def health():
@@ -31,22 +31,27 @@ async def health():
 
 @app.get("/api/quote/{scheme_code}")
 async def fetch_quote(scheme_code: str):
-    quote_fn, _, _, _ = get_tools()
+    quote_fn, _, _, _, _ = get_tools()
     return quote_fn(scheme_code)
+
+@app.get("/api/historical/{scheme_code}")
+async def fetch_historical(scheme_code: str):
+    _, _, _, _, historical_fn = get_tools()
+    return historical_fn(scheme_code)
 
 @app.get("/api/search")
 async def search_schemes(q: str):
-    _, _, _, search_fn = get_tools()
+    _, _, _, search_fn, _ = get_tools()
     return search_fn(q)
 
 @app.post("/api/portfolio/valuation")
 async def calculate_valuation(investments: list = Body(...)):
-    _, valuation_fn, _, _ = get_tools()
+    _, valuation_fn, _, _, _ = get_tools()
     return valuation_fn(investments)
 
 @app.post("/api/portfolio/discover")
 async def discover(credentials: dict = Body(...)):
-    _, _, discover_fn, _ = get_tools()
+    _, _, discover_fn, _, _ = get_tools()
     return discover_fn(credentials)
 
 if __name__ == "__main__":

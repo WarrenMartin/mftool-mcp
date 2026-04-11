@@ -154,3 +154,14 @@ mftool-mcp/
 
 ## Acknowledgements
 
+```js
+
+# Terminal 1 — backend
+cd /Users/work/Desktop/mftool-mcp
+.venv/bin/python api_proxy.py
+
+# Terminal 2 — frontend  
+cd frontend
+npm run dev
+
+```
