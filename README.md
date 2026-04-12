@@ -165,3 +165,6 @@ cd frontend
 npm run dev
 
 ```
+I also want to take the top best MF which is not there in this and study that and find some common stocks which money can be put. 
+
+I would in the future want some alert system whcih will tell me at 12pm which mutual fund is worth investing in and how much they have fallen. 
