@@ -1,6 +1,33 @@
 import sys
 import os
 import uvicorn
+
+# ─── Fix: CA bundle path for stale/relocated .venv installations ─────────────
+# When certifi was compiled against a different machine path (/Users/work/...),
+# certifi.where() returns an invalid path. We derive the correct one from the
+# actual running Python executable, then patch requests internals before mftool
+# (or any requests Session) is instantiated.
+def _patch_ca_bundle():
+    python_exe = os.path.abspath(sys.executable)
+    venv_dir   = os.path.dirname(os.path.dirname(python_exe))
+    py_ver     = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    ca_path    = os.path.join(venv_dir, "lib", py_ver,
+                              "site-packages", "certifi", "cacert.pem")
+    if not os.path.isfile(ca_path):
+        return  # file not found — fall back to certifi default
+    os.environ["REQUESTS_CA_BUNDLE"] = ca_path
+    os.environ["SSL_CERT_FILE"]      = ca_path
+    # Preload requests and overwrite the module-level constant used in Session.send()
+    try:
+        import requests.utils, requests.adapters
+        requests.utils.DEFAULT_CA_BUNDLE_PATH    = ca_path
+        requests.adapters.DEFAULT_CA_BUNDLE_PATH = ca_path
+        print(f"[CA fix] patched CA bundle → {ca_path}", flush=True)
+    except ImportError:
+        pass
+
+_patch_ca_bundle()
+# ─────────────────────────────────────────────────────────────────────────────
 from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
 

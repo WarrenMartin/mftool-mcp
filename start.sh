@@ -51,6 +51,14 @@ cleanup() {
 }
 trap cleanup INT TERM
 
+# ── Free port 8000 if something else is using it ─
+OLD_PID=$(lsof -ti:8000 2>/dev/null)
+if [[ -n "$OLD_PID" ]]; then
+  echo -e "${YELLOW}⚠  Port 8000 in use (PID $OLD_PID) — killing it...${NC}"
+  kill -9 $OLD_PID 2>/dev/null || sudo kill -9 $OLD_PID 2>/dev/null || true
+  sleep 1
+fi
+
 # ── Start backend ─────────────────────────────
 echo -e "${CYAN}▶ Starting backend  →  http://localhost:8000${NC}"
 "$VENV/bin/python" "$ROOT_DIR/api_proxy.py" &
