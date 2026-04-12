@@ -24,6 +24,12 @@ fi
 # ── Install / sync Python deps ─────────────────
 echo -e "${YELLOW}⚙  Syncing Python dependencies...${NC}"
 "$VENV/bin/pip" install -q -r "$ROOT_DIR/requirements.txt"
+"$VENV/bin/pip" install -q --force-reinstall certifi   # fix stale CA bundle paths
+
+# ── Fix TLS CA bundle path for requests/mftool ─
+CERTIFI_PATH="$("$VENV/bin/python" -c "import certifi; print(certifi.where())")"
+export REQUESTS_CA_BUNDLE="$CERTIFI_PATH"
+export SSL_CERT_FILE="$CERTIFI_PATH"
 
 # ── Guard: node_modules ───────────────────────
 if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
