@@ -25,6 +25,10 @@ def get_tools():
     from mftool_mcp.tools.schemes import search_scheme_by_name
     return get_scheme_quote, get_portfolio_valuation, discover_investments, search_scheme_by_name, get_scheme_historical_nav
 
+def get_perf_tools():
+    from mftool_mcp.tools.performance import get_equity_scheme_performance, get_debt_scheme_performance, get_hybrid_scheme_performance
+    return get_equity_scheme_performance, get_debt_scheme_performance, get_hybrid_scheme_performance
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "mftool-mcp-proxy"}
@@ -53,6 +57,21 @@ async def calculate_valuation(investments: list = Body(...)):
 async def discover(credentials: dict = Body(...)):
     _, _, discover_fn, _, _ = get_tools()
     return discover_fn(credentials)
+
+@app.get("/api/performance/equity")
+async def perf_equity():
+    equity_fn, _, _ = get_perf_tools()
+    return equity_fn()
+
+@app.get("/api/performance/debt")
+async def perf_debt():
+    _, debt_fn, _ = get_perf_tools()
+    return debt_fn()
+
+@app.get("/api/performance/hybrid")
+async def perf_hybrid():
+    _, _, hybrid_fn = get_perf_tools()
+    return hybrid_fn()
 
 if __name__ == "__main__":
     print("Starting mftool-mcp Proxy API on http://0.0.0.0:8000")

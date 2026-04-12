@@ -7,6 +7,7 @@ import {
   Search, X, TrendingUp, TrendingDown, BarChart2,
   AlertCircle, Loader2, Calendar, Layers, Tag,
   ChevronDown, ChevronRight, Building2, Info,
+  Trophy, Award, Percent, DollarSign, Plus,
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000/api';
@@ -52,7 +53,7 @@ const FUND_COLORS = [
   '#ec4899','#f43f5e','#0ea5e9','#84cc16',
 ];
 
-/* Overlap scoring between two funds (0-100) */
+/* Overlap scoring */
 function computeOverlap(a, b) {
   if (a.code === b.code) return 100;
   let score = 0;
@@ -60,7 +61,6 @@ function computeOverlap(a, b) {
   if (a.category === b.category) score += 35;
   if (a.sector === b.sector) score += 15;
   if (a.amc === b.amc) score += 5;
-  // Liquid vs equity → no overlap
   if (a.capType === 'Debt' || b.capType === 'Debt') score = Math.min(score, 5);
   return Math.min(score, 99);
 }
@@ -73,12 +73,9 @@ function overlapColor(score) {
 }
 
 /* ─── Date helpers ─── */
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
+function todayStr() { return new Date().toISOString().slice(0, 10); }
 function daysAgoStr(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
+  const d = new Date(); d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
 }
 function parseNavDate(str) {
@@ -94,7 +91,9 @@ function filterByDateRange(navHistory, fromStr, toStr) {
     return d >= from && d <= to;
   });
 }
-function buildChartData(funds, fromDate, toDate) {
+
+/* Build chart data — viewMode: 'pct' (% change from start) | 'nav' (real ₹) */
+function buildChartData(funds, fromDate, toDate, viewMode = 'pct') {
   if (!funds.length) return [];
   const dateSet = new Set();
   const fundSlices = funds.map((f) => {
@@ -113,17 +112,25 @@ function buildChartData(funds, fromDate, toDate) {
     const first = sortedDates.find((d) => fundMaps[i][d] !== undefined);
     return first ? fundMaps[i][first] : null;
   });
+  // Also store actual NAV alongside pct for tooltip
   return sortedDates.map((date) => {
     const point = { date };
     fundSlices.forEach((f, i) => {
       const nav = fundMaps[i][date];
       if (nav !== undefined && bases[i]) {
-        point[f.code] = parseFloat(((nav / bases[i]) * 100).toFixed(2));
+        if (viewMode === 'nav') {
+          point[f.code] = parseFloat(nav.toFixed(4));
+        } else {
+          point[f.code] = parseFloat((((nav / bases[i]) - 1) * 100).toFixed(2));
+        }
+        // Always store actual nav for tooltip use
+        point[`${f.code}_nav`] = parseFloat(nav.toFixed(4));
       }
     });
     return point;
   });
 }
+
 function computeMetrics(navHistory, fromDate, toDate) {
   const slice = filterByDateRange(navHistory, fromDate, toDate);
   if (!slice.length) return null;
@@ -153,20 +160,35 @@ function CategoryBadge({ category }) {
   );
 }
 
-function CustomTooltip({ active, payload, label, funds }) {
+/* Enhanced tooltip: shows % change + real NAV */
+function CustomTooltip({ active, payload, label, funds, viewMode }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="glass rounded-xl px-4 py-3 text-xs shadow-2xl min-w-[200px] border border-white/10">
-      <p className="text-slate-400 mb-2 font-medium">{label}</p>
+    <div className="glass rounded-xl px-4 py-3 text-xs shadow-2xl min-w-[220px] border border-white/10">
+      <p className="text-slate-400 mb-2.5 font-medium border-b border-white/5 pb-2">{label}</p>
       {payload.map((p) => {
         const fund = funds?.find((f) => f.code === p.dataKey);
+        if (!fund) return null;
+        const actualNav = p.payload?.[`${p.dataKey}_nav`];
         return (
-          <div key={p.dataKey} className="flex items-center justify-between gap-4 mb-1">
-            <span className="flex items-center gap-1.5">
+          <div key={p.dataKey} className="flex items-center justify-between gap-4 mb-2 last:mb-0">
+            <span className="flex items-center gap-1.5 min-w-0">
               <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color }} />
-              <span className="text-slate-300 max-w-[120px] truncate">{fund?.short || p.name}</span>
+              <span className="text-slate-300 truncate max-w-[110px]">{fund?.short || p.name}</span>
             </span>
-            <span className="font-bold text-white">{p.value?.toFixed(2)}</span>
+            <div className="text-right shrink-0">
+              <div className="font-bold text-white">
+                {viewMode === 'nav'
+                  ? `₹${p.value?.toFixed(2)}`
+                  : <span className={p.value >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                      {p.value >= 0 ? '+' : ''}{p.value?.toFixed(2)}%
+                    </span>
+                }
+              </div>
+              {viewMode === 'pct' && actualNav != null && (
+                <div className="text-[10px] text-slate-500 mt-0.5">NAV ₹{actualNav.toFixed(2)}</div>
+              )}
+            </div>
           </div>
         );
       })}
@@ -242,7 +264,6 @@ function FundSearchInput({ onAdd, existingCodes }) {
   );
 }
 
-/* ─── Preset fund picker panel ─── */
 const AMC_ORDER = ['Aditya Birla Sun Life', 'Axis', 'ICICI Prudential', 'Kotak', 'Motilal Oswal', 'Nippon India', 'PPFAS', 'Sundaram'];
 
 function PresetPanel({ existingCodes, onAdd }) {
@@ -281,9 +302,7 @@ function PresetPanel({ existingCodes, onAdd }) {
                       disabled={added}
                       title={fund.name}
                       className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all ${
-                        added
-                          ? 'opacity-40 cursor-not-allowed bg-slate-800/40 border-white/10 text-slate-500'
-                          : 'cursor-pointer hover:opacity-80'
+                        added ? 'opacity-40 cursor-not-allowed bg-slate-800/40 border-white/10 text-slate-500' : 'cursor-pointer hover:opacity-80'
                       }`}
                       style={!added ? { background: meta.bg, borderColor: `${meta.color}40`, color: meta.color } : {}}>
                       {added && <span className="w-1.5 h-1.5 rounded-full bg-current" />}
@@ -327,7 +346,6 @@ function CategoryInsights({ funds }) {
 
   return (
     <div className="space-y-6">
-      {/* Fund cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {funds.map((fund) => {
           const preset = PRESET_FUNDS.find((p) => p.code === fund.code);
@@ -342,9 +360,7 @@ function CategoryInsights({ funds }) {
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     <CategoryBadge category={preset?.category || 'Unknown'} />
                     {preset?.sector && (
-                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-full border border-white/10 text-slate-400 bg-slate-800/60">
-                        {preset.sector}
-                      </span>
+                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-full border border-white/10 text-slate-400 bg-slate-800/60">{preset.sector}</span>
                     )}
                   </div>
                   {preset && (
@@ -359,8 +375,6 @@ function CategoryInsights({ funds }) {
           );
         })}
       </div>
-
-      {/* Category distribution bar */}
       {catCounts.length > 0 && (
         <div className="glass rounded-2xl p-5 border border-white/5">
           <h3 className="text-sm font-bold text-slate-200 mb-4">Category Distribution</h3>
@@ -381,8 +395,6 @@ function CategoryInsights({ funds }) {
           </div>
         </div>
       )}
-
-      {/* AMC distribution */}
       {amcCounts.length > 1 && (
         <div className="glass rounded-2xl p-5 border border-white/5">
           <h3 className="text-sm font-bold text-slate-200 mb-4">AMC Distribution</h3>
@@ -403,18 +415,12 @@ function CategoryInsights({ funds }) {
 /* ─── Overlap Matrix Tab ─── */
 function OverlapMatrix({ funds }) {
   if (funds.length < 2) {
-    return (
-      <div className="text-center py-12 text-slate-500 text-sm">
-        Add at least 2 funds to see overlap analysis.
-      </div>
-    );
+    return <div className="text-center py-12 text-slate-500 text-sm">Add at least 2 funds to see overlap analysis.</div>;
   }
-
   const labels = funds.map((f) => {
     const preset = PRESET_FUNDS.find((p) => p.code === f.code);
     return { ...f, short: preset?.short || f.code, preset };
   });
-
   return (
     <div className="space-y-5">
       <div className="flex items-start gap-3 text-xs text-slate-500 bg-slate-800/40 rounded-xl px-4 py-3 border border-white/5">
@@ -454,11 +460,8 @@ function OverlapMatrix({ funds }) {
                   const isSelf = row.code === col.code;
                   return (
                     <td key={col.code} className="px-3 py-3 text-center">
-                      {isSelf ? (
-                        <span className="text-slate-600">—</span>
-                      ) : (
-                        <span className="inline-block px-2 py-1 rounded-lg font-semibold"
-                          style={{ background: bg, color: text }}>
+                      {isSelf ? <span className="text-slate-600">—</span> : (
+                        <span className="inline-block px-2 py-1 rounded-lg font-semibold" style={{ background: bg, color: text }}>
                           {score}%
                         </span>
                       )}
@@ -470,13 +473,244 @@ function OverlapMatrix({ funds }) {
           </tbody>
         </table>
       </div>
-      {/* Legend */}
       <div className="flex flex-wrap gap-3 text-xs text-slate-500">
         <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: 'rgba(244,63,94,0.25)' }} /> <span className="text-rose-400">≥70%</span> High overlap</div>
         <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: 'rgba(245,158,11,0.2)' }} /> <span className="text-amber-400">40–69%</span> Moderate</div>
         <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: 'rgba(99,102,241,0.15)' }} /> <span className="text-indigo-300">20–39%</span> Low</div>
         <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: 'rgba(16,185,129,0.12)' }} /> <span className="text-emerald-400">&lt;20%</span> Very low</div>
       </div>
+    </div>
+  );
+}
+
+/* ─── Top Performers Tab ─── */
+const PERF_TERMS = [
+  { label: '1Y', days: 365 },
+  { label: '3Y', days: 1095 },
+  { label: '5Y', days: 1825 },
+];
+
+const CAP_FILTERS = ['All', 'Large Cap', 'Mid Cap', 'Small Cap', 'Multi Cap', 'Hybrid', 'Debt'];
+
+function TopPerformers({ existingCodes, onAddFund }) {
+  const [navCache, setNavCache] = useState({}); // code → navHistory[]
+  const [loading, setLoading] = useState(false);
+  const [loadProgress, setLoadProgress] = useState({ done: 0, total: 0 });
+  const [error, setError] = useState(null);
+  const [selectedTerm, setSelectedTerm] = useState('1Y');
+  const [capFilter, setCapFilter] = useState('All');
+  const hasFetched = useRef(false);
+
+  // Batch-fetch all preset funds in parallel (chunked to avoid hammering the API)
+  useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+
+    const fetchAll = async () => {
+      setLoading(true);
+      setLoadProgress({ done: 0, total: PRESET_FUNDS.length });
+      setError(null);
+      const chunkSize = 5;
+      const newCache = {};
+
+      for (let i = 0; i < PRESET_FUNDS.length; i += chunkSize) {
+        const chunk = PRESET_FUNDS.slice(i, i + chunkSize);
+        await Promise.all(chunk.map(async (fund) => {
+          try {
+            const res = await fetch(`${API_BASE}/historical/${fund.code}`);
+            const data = await res.json();
+            if (!data.error && Array.isArray(data.data)) {
+              newCache[fund.code] = data.data;
+            }
+          } catch {
+            // skip failed fund
+          }
+          setLoadProgress((p) => ({ ...p, done: p.done + 1 }));
+        }));
+      }
+      setNavCache({ ...newCache });
+      setLoading(false);
+    };
+
+    fetchAll().catch(() => {
+      setError('Failed to fetch performance data.');
+      setLoading(false);
+    });
+  }, []);
+
+  const termDays = PERF_TERMS.find((t) => t.label === selectedTerm)?.days || 365;
+  const fromDate = daysAgoStr(termDays);
+  const toDate = todayStr();
+
+  // Compute rankings
+  const rankings = useMemo(() => {
+    return PRESET_FUNDS
+      .filter((f) => capFilter === 'All' || f.capType === capFilter)
+      .map((fund) => {
+        const navHistory = navCache[fund.code];
+        if (!navHistory?.length) return null;
+        const metrics = computeMetrics(navHistory, fromDate, toDate);
+        if (!metrics) return null;
+        return { ...fund, metrics };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.metrics.returnPct - a.metrics.returnPct);
+  }, [navCache, fromDate, toDate, capFilter]);
+
+  if (loading) {
+    const pct = loadProgress.total > 0 ? Math.round((loadProgress.done / loadProgress.total) * 100) : 0;
+    return (
+      <div className="py-12 flex flex-col items-center gap-4">
+        <div className="relative w-16 h-16">
+          <svg className="w-16 h-16 -rotate-90" viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="4" />
+            <circle cx="32" cy="32" r="28" fill="none" stroke="#3b82f6" strokeWidth="4"
+              strokeDasharray={`${2 * Math.PI * 28}`}
+              strokeDashoffset={`${2 * Math.PI * 28 * (1 - pct / 100)}`}
+              className="transition-all duration-300" />
+          </svg>
+          <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-blue-400">{pct}%</span>
+        </div>
+        <p className="text-sm text-slate-400">Fetching NAV data… {loadProgress.done}/{loadProgress.total} funds</p>
+        <p className="text-xs text-slate-600">Computing performance from live AMFI data</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 text-rose-400 text-sm bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-4">
+        <AlertCircle className="w-5 h-5 shrink-0" /> {error}
+      </div>
+    );
+  }
+
+  if (!rankings.length && Object.keys(navCache).length === 0) {
+    return (
+      <div className="text-center py-12 text-slate-500 text-sm">No data available yet.</div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Filters */}
+      <div className="flex flex-wrap gap-4 items-center">
+        {/* Term selector */}
+        <div className="flex items-center gap-1 bg-slate-800/60 rounded-xl p-1 border border-white/5">
+          {PERF_TERMS.map(({ label }) => (
+            <button key={label} onClick={() => setSelectedTerm(label)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                selectedTerm === label ? 'bg-amber-500/90 text-white shadow-lg shadow-amber-500/20' : 'text-slate-400 hover:text-slate-200'
+              }`}>{label} Return</button>
+          ))}
+        </div>
+        {/* Cap filter */}
+        <div className="flex flex-wrap gap-1.5">
+          {CAP_FILTERS.map((cap) => (
+            <button key={cap} onClick={() => setCapFilter(cap)}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all ${
+                capFilter === cap
+                  ? 'bg-blue-500/20 border-blue-500/40 text-blue-400'
+                  : 'border-white/10 text-slate-500 hover:text-slate-300 bg-slate-800/40'
+              }`}>{cap}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Info banner */}
+      <div className="flex items-start gap-3 text-xs text-slate-500 bg-slate-800/40 rounded-xl px-4 py-3 border border-white/5">
+        <Info className="w-4 h-4 shrink-0 mt-0.5 text-slate-600" />
+        <p>Rankings computed from actual AMFI NAV data for the selected period. Click <strong className="text-slate-400">+ Benchmark</strong> to add any fund to your comparison chart.</p>
+      </div>
+
+      {/* Rankings table */}
+      {rankings.length === 0 ? (
+        <div className="text-center py-10 text-slate-500 text-sm">No funds match this filter.</div>
+      ) : (
+        <div className="glass rounded-2xl overflow-hidden border border-white/5">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-white/5 text-slate-500 text-[11px] uppercase tracking-wider bg-slate-800/40">
+                  <th className="px-4 py-3 font-semibold w-10 text-center">Rank</th>
+                  <th className="px-4 py-3 font-semibold">Fund</th>
+                  <th className="px-4 py-3 font-semibold">Category</th>
+                  <th className="px-4 py-3 font-semibold text-right">Current NAV</th>
+                  <th className="px-4 py-3 font-semibold text-right">{selectedTerm} Return</th>
+                  {selectedTerm !== '1Y' && <th className="px-4 py-3 font-semibold text-right">CAGR</th>}
+                  <th className="px-4 py-3 font-semibold text-right">Max DD</th>
+                  <th className="px-4 py-3 font-semibold text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {rankings.map((fund, idx) => {
+                  const isPos = fund.metrics.returnPct >= 0;
+                  const isTop3 = idx < 3;
+                  const alreadyAdded = existingCodes.includes(fund.code);
+                  const medalColors = ['#fbbf24', '#94a3b8', '#cd7c2e'];
+                  return (
+                    <tr key={fund.code} className={`hover:bg-white/[0.02] transition-colors ${isTop3 ? 'relative' : ''}`}>
+                      <td className="px-4 py-3.5 text-center">
+                        {isTop3 ? (
+                          <Award className="w-4 h-4 mx-auto" style={{ color: medalColors[idx] }} />
+                        ) : (
+                          <span className="text-slate-600 font-mono">#{idx + 1}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div>
+                          <p className="font-semibold text-slate-100 leading-snug">{fund.short}</p>
+                          <p className="text-[10px] text-slate-600 font-mono mt-0.5">{fund.code} · {fund.amc}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <CategoryBadge category={fund.category} />
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <div className="font-bold text-slate-100">₹{fund.metrics.endNav.toFixed(2)}</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">was ₹{fund.metrics.startNav.toFixed(2)}</div>
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <span className={`inline-flex items-center gap-1 font-bold px-2 py-1 rounded-lg ${isPos ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'}`}>
+                          {isPos ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                          {isPos ? '+' : ''}{fund.metrics.returnPct.toFixed(2)}%
+                        </span>
+                      </td>
+                      {selectedTerm !== '1Y' && (
+                        <td className="px-4 py-3.5 text-right">
+                          {fund.metrics.cagr != null
+                            ? <span className={`font-semibold ${fund.metrics.cagr >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {fund.metrics.cagr >= 0 ? '+' : ''}{fund.metrics.cagr.toFixed(2)}% p.a.
+                              </span>
+                            : <span className="text-slate-600">—</span>}
+                        </td>
+                      )}
+                      <td className="px-4 py-3.5 text-right">
+                        <span className="text-amber-400 font-semibold">-{fund.metrics.maxDrawdown.toFixed(2)}%</span>
+                      </td>
+                      <td className="px-4 py-3.5 text-center">
+                        {alreadyAdded ? (
+                          <span className="text-[11px] text-slate-600 bg-slate-800/60 px-2.5 py-1.5 rounded-lg border border-white/5">In Chart</span>
+                        ) : (
+                          <button
+                            onClick={() => onAddFund(fund.code, fund.name, fund)}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-blue-500/15 text-blue-400 border border-blue-500/25 hover:bg-blue-500/25 transition-colors">
+                            <Plus className="w-3 h-3" /> Benchmark
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <p className="text-[11px] text-slate-600 px-1">
+        {Object.keys(navCache).length}/{PRESET_FUNDS.length} funds loaded · Returns for period {fromDate} → {toDate}
+      </p>
     </div>
   );
 }
@@ -494,12 +728,12 @@ export default function FundComparator() {
   const [pendingFrom, setPendingFrom] = useState(daysAgoStr(365));
   const [pendingTo, setPendingTo] = useState(todayStr());
   const [activeTab, setActiveTab] = useState('chart');
+  const [viewMode, setViewMode] = useState('pct'); // 'pct' | 'nav'
 
   const applyDates = () => { setFromDate(pendingFrom); setToDate(pendingTo); };
 
   const setQuickRange = (days) => {
-    const from = daysAgoStr(days);
-    const to = todayStr();
+    const from = daysAgoStr(days); const to = todayStr();
     setPendingFrom(from); setPendingTo(to);
     setFromDate(from); setToDate(to);
   };
@@ -533,17 +767,23 @@ export default function FundComparator() {
 
   const readyFunds = useMemo(() => funds.filter((f) => !f.loading && !f.error && f.navHistory.length), [funds]);
 
-  const chartData = useMemo(() => buildChartData(readyFunds, fromDate, toDate), [readyFunds, fromDate, toDate]);
+  const chartData = useMemo(() => buildChartData(readyFunds, fromDate, toDate, viewMode), [readyFunds, fromDate, toDate, viewMode]);
 
   const tickFormatter = useCallback((dateStr) => {
     const d = parseNavDate(dateStr);
     return `${d.toLocaleString('en-IN', { month: 'short' })} '${String(d.getFullYear()).slice(2)}`;
   }, []);
 
+  const yAxisFormatter = useCallback((v) => {
+    if (viewMode === 'nav') return `₹${v.toFixed(0)}`;
+    return `${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
+  }, [viewMode]);
+
   const TABS = [
     { id: 'chart', label: 'Performance Chart', icon: BarChart2 },
     { id: 'category', label: 'Category Insights', icon: Tag },
     { id: 'overlap', label: 'Fund Overlap', icon: Layers },
+    { id: 'top', label: 'Top Performers', icon: Trophy },
   ];
 
   return (
@@ -555,7 +795,7 @@ export default function FundComparator() {
         </div>
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">Fund Comparator</h1>
-          <p className="text-slate-500 text-xs mt-0.5">Compare up to 8 mutual funds on a custom date range</p>
+          <p className="text-slate-500 text-xs mt-0.5">Compare up to 8 mutual funds · Real NAV & % change · Top performers ranking</p>
         </div>
       </header>
 
@@ -578,9 +818,7 @@ export default function FundComparator() {
             </div>
           ))}
           {funds.length === 0 && <p className="text-xs text-slate-600">Add funds from the panel above or search below</p>}
-          {funds.length < 8 && (
-            <FundSearchInput onAdd={addFund} existingCodes={funds.map((f) => f.code)} />
-          )}
+          {funds.length < 8 && <FundSearchInput onAdd={addFund} existingCodes={funds.map((f) => f.code)} />}
         </div>
         {funds.filter((f) => f.error).map((f) => (
           <div key={f.code} className="flex items-center gap-2 text-rose-400 text-xs bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
@@ -624,7 +862,7 @@ export default function FundComparator() {
       </div>
 
       {/* Content area */}
-      {readyFunds.length > 0 && (
+      {(readyFunds.length > 0 || activeTab === 'top') && (
         <div className="glass rounded-2xl overflow-hidden border border-white/5">
           {/* Tabs */}
           <div className="flex items-center gap-1 px-4 pt-4 border-b border-white/5 pb-0">
@@ -632,11 +870,14 @@ export default function FundComparator() {
               <button key={id} onClick={() => setActiveTab(id)}
                 className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-xl transition-all border-b-2 ${
                   activeTab === id
-                    ? 'text-blue-400 border-blue-500 bg-blue-500/5'
+                    ? id === 'top'
+                      ? 'text-amber-400 border-amber-500 bg-amber-500/5'
+                      : 'text-blue-400 border-blue-500 bg-blue-500/5'
                     : 'text-slate-500 border-transparent hover:text-slate-300'
                 }`}>
                 <Icon className="w-4 h-4" />
-                {label}
+                <span className="hidden sm:inline">{label}</span>
+                {id === 'top' && <span className="hidden sm:inline ml-1 text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded-full font-semibold">NEW</span>}
               </button>
             ))}
           </div>
@@ -645,10 +886,39 @@ export default function FundComparator() {
             {/* Performance Chart */}
             {activeTab === 'chart' && (
               <div className="space-y-4">
-                <div>
-                  <p className="text-sm font-bold text-slate-100">Normalized Performance</p>
-                  <p className="text-xs text-slate-500 mt-0.5">Base = ₹100 at start of selected period</p>
+                {/* Chart header + view mode toggle */}
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div>
+                    <p className="text-sm font-bold text-slate-100">
+                      {viewMode === 'pct' ? '% Change from Period Start' : 'Real NAV (₹)'}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {viewMode === 'pct'
+                        ? 'All funds start at 0% — makes cross-fund comparison equal'
+                        : 'Actual NAV values — useful for tracking absolute price'}
+                    </p>
+                  </div>
+                  {/* View mode toggle */}
+                  <div className="flex items-center gap-1 bg-slate-800/60 rounded-xl p-1 border border-white/5 shrink-0">
+                    <button
+                      onClick={() => setViewMode('pct')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                        viewMode === 'pct' ? 'bg-emerald-600/80 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+                      }`}>
+                      <Percent className="w-3 h-3" />
+                      % Change
+                    </button>
+                    <button
+                      onClick={() => setViewMode('nav')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                        viewMode === 'nav' ? 'bg-blue-600/80 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+                      }`}>
+                      <DollarSign className="w-3 h-3" />
+                      Real NAV
+                    </button>
+                  </div>
                 </div>
+
                 {chartData.length === 0 ? (
                   <div className="h-[300px] flex items-center justify-center text-slate-500 text-sm">
                     No NAV data available for the selected date range
@@ -656,16 +926,18 @@ export default function FundComparator() {
                 ) : (
                   <div className="h-[360px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={chartData} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
+                      <LineChart data={chartData} margin={{ top: 5, right: 16, left: 4, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                         <XAxis dataKey="date" tickFormatter={tickFormatter}
                           tick={{ fill: '#64748b', fontSize: 11 }} axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
                           tickLine={false} interval="preserveStartEnd" />
                         <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false}
-                          tickFormatter={(v) => `${v}`} width={48} />
-                        <ReferenceLine y={100} stroke="rgba(255,255,255,0.12)" strokeDasharray="4 4"
-                          label={{ value: '100', fill: '#475569', fontSize: 10, position: 'insideLeft' }} />
-                        <Tooltip content={<CustomTooltip funds={readyFunds} />} />
+                          tickFormatter={yAxisFormatter} width={58} />
+                        {viewMode === 'pct' && (
+                          <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 4"
+                            label={{ value: '0%', fill: '#475569', fontSize: 10, position: 'insideTopLeft' }} />
+                        )}
+                        <Tooltip content={<CustomTooltip funds={readyFunds} viewMode={viewMode} />} />
                         <Legend wrapperStyle={{ paddingTop: 12, fontSize: 11 }}
                           formatter={(value) => {
                             const f = readyFunds.find((x) => x.code === value);
@@ -688,29 +960,45 @@ export default function FundComparator() {
 
             {/* Overlap Matrix */}
             {activeTab === 'overlap' && <OverlapMatrix funds={readyFunds} />}
+
+            {/* Top Performers */}
+            {activeTab === 'top' && (
+              <TopPerformers
+                existingCodes={funds.map((f) => f.code)}
+                onAddFund={(code, name, preset) => {
+                  addFund(code, name, preset);
+                  setActiveTab('chart');
+                }}
+              />
+            )}
           </div>
         </div>
       )}
 
-      {/* Empty state */}
-      {funds.length === 0 && (
-        <div className="glass rounded-2xl py-16 flex flex-col items-center justify-center gap-4 text-center border border-white/5">
+      {/* Tab: Top Performers available even without funds added */}
+      {funds.length === 0 && activeTab !== 'top' && (
+        <div className="glass rounded-2xl py-12 flex flex-col items-center justify-center gap-4 text-center border border-white/5">
           <div className="p-4 bg-slate-800/60 rounded-2xl">
             <BarChart2 className="w-10 h-10 text-slate-600" />
           </div>
           <div>
             <p className="text-slate-300 font-semibold mb-1">No funds selected</p>
-            <p className="text-slate-500 text-sm">Click any fund from "Your Fund List" above to start comparing</p>
+            <p className="text-slate-500 text-sm mb-3">Click any fund from "Your Fund List" above to start comparing</p>
+            <button onClick={() => setActiveTab('top')}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500/15 text-amber-400 border border-amber-500/25 rounded-xl text-sm font-semibold hover:bg-amber-500/25 transition-colors">
+              <Trophy className="w-4 h-4" />
+              View Top Performers
+            </button>
           </div>
         </div>
       )}
 
-      {/* Metrics Table */}
+      {/* Metrics Table (real NAV view) */}
       {readyFunds.length > 0 && (
         <div className="glass rounded-2xl overflow-hidden border border-white/5">
           <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-bold text-slate-100">Metrics</h2>
+              <h2 className="text-sm font-bold text-slate-100">Metrics — Real NAV Values</h2>
               <p className="text-xs text-slate-500 mt-0.5">{fromDate} → {toDate}</p>
             </div>
           </div>
@@ -720,9 +1008,9 @@ export default function FundComparator() {
                 <tr className="border-b border-white/5 text-slate-500 text-xs uppercase tracking-wider">
                   <th className="px-5 py-3 font-semibold">Fund</th>
                   <th className="px-5 py-3 font-semibold">Category</th>
-                  <th className="px-5 py-3 font-semibold text-right">Start NAV</th>
-                  <th className="px-5 py-3 font-semibold text-right">Current NAV</th>
-                  <th className="px-5 py-3 font-semibold text-right">Return</th>
+                  <th className="px-5 py-3 font-semibold text-right">Start NAV (₹)</th>
+                  <th className="px-5 py-3 font-semibold text-right">Current NAV (₹)</th>
+                  <th className="px-5 py-3 font-semibold text-right">% Change</th>
                   <th className="px-5 py-3 font-semibold text-right">CAGR</th>
                   <th className="px-5 py-3 font-semibold text-right">Max Drawdown</th>
                 </tr>
@@ -747,8 +1035,12 @@ export default function FundComparator() {
                       <td className="px-5 py-4">
                         {preset ? <CategoryBadge category={preset.category} /> : <span className="text-slate-600 text-xs">—</span>}
                       </td>
-                      <td className="px-5 py-4 text-right font-medium text-slate-400 text-xs">₹{m.startNav.toFixed(2)}</td>
-                      <td className="px-5 py-4 text-right font-bold text-slate-100 text-xs">₹{m.endNav.toFixed(2)}</td>
+                      <td className="px-5 py-4 text-right">
+                        <span className="font-medium text-slate-400 text-xs">₹{m.startNav.toFixed(2)}</span>
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <span className="font-bold text-slate-100 text-sm">₹{m.endNav.toFixed(2)}</span>
+                      </td>
                       <td className="px-5 py-4 text-right">
                         <span className={`inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded-lg text-xs ${isPos ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'}`}>
                           {isPos ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
